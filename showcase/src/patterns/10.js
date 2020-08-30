@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useRef,
   useEffect,
+  useReducer,
 } from "react";
 import mojs from "mo-js";
 import styles from "./index.css";
@@ -143,19 +144,30 @@ const callFnsInSequence = (...fns) => (...args) => {
 /**
  * custom hook for useClapState
  */
-const useClapState = (initialState = INITIAL_STATE) => {
-  const MAXIMUM_USER_CLAP = 50;
-  const [clapState, setClapState] = useState(initialState);
+const MAXIMUM_USER_CLAP = 50;
+const internalReducer = ({ count, countTotal }, { type, payload }) => {
+  switch (type) {
+    case "clap":
+      return {
+        isClicked: true,
+        count: Math.min(count + 1, MAXIMUM_USER_CLAP),
+        countTotal: count < MAXIMUM_USER_CLAP ? countTotal + 1 : countTotal,
+      };
+    case "reset":
+      return payload;
+    default:
+      break;
+  }
+};
+const useClapState = (
+  initialState = INITIAL_STATE,
+  reducer = internalReducer
+) => {
+  const [clapState, dispatch] = useReducer(reducer, initialState);
   const userInitialState = useRef(initialState);
   const { count, countTotal } = clapState;
 
-  const updateClapState = useCallback(() => {
-    setClapState(({ count, countTotal }) => ({
-      isClicked: true,
-      count: Math.min(count + 1, MAXIMUM_USER_CLAP),
-      countTotal: count < MAXIMUM_USER_CLAP ? countTotal + 1 : countTotal,
-    }));
-  }, [count, countTotal]);
+  const updateClapState = () => dispatch({ type: "clap" });
 
   const getTogglerProps = ({ onClick, ...otherProps } = {}) => ({
     onClick: callFnsInSequence(updateClapState, onClick),
@@ -175,10 +187,10 @@ const useClapState = (initialState = INITIAL_STATE) => {
   const prevCount = usePrevious(count);
   const reset = useCallback(() => {
     if (prevCount !== count) {
-      setClapState(userInitialState.current);
+      dispatch({ type: "reset", payload: userInitialState.current });
       resetRef.current++;
     }
-  }, [prevCount, count, setClapState]);
+  }, [prevCount, count, dispatch]);
 
   return {
     clapState,
@@ -190,6 +202,11 @@ const useClapState = (initialState = INITIAL_STATE) => {
   };
 };
 
+useClapState.reducer = internalReducer;
+useClapState.types = {
+  clap: "clap",
+  reset: "reset",
+};
 /**
  * custom useEffectAfterMount hook
  */
@@ -260,6 +277,13 @@ const userInitialState = {
 };
 
 const Usage = () => {
+  const [timesClapped, setTimeClapped] = useState(0);
+  const isClappedTooMuch = timesClapped >= 7; // true/false
+  const reducer = (state, action) => {
+    if (action.type === useClapState.types.clap && isClappedTooMuch)
+      return state;
+    return useClapState.reducer(state, action);
+  };
   const {
     clapState,
     updateClapState,
@@ -267,7 +291,7 @@ const Usage = () => {
     getCounterProps,
     reset,
     resetDep,
-  } = useClapState(userInitialState);
+  } = useClapState(userInitialState, reducer);
 
   const { count, countTotal, isClicked } = clapState;
 
@@ -286,7 +310,7 @@ const Usage = () => {
   const [uploadingReset, setUpload] = useState(false);
   useEffectAfterMount(() => {
     setUpload(true);
-
+    setTimeClapped(0);
     const id = setTimeout(() => {
       setUpload(false);
     }, 1000);
@@ -295,6 +319,7 @@ const Usage = () => {
 
   const handleClick = () => {
     console.log("CLICKED!!!!");
+    setTimeClapped((t) => t + 1);
   };
 
   return (
@@ -324,6 +349,9 @@ const Usage = () => {
       </section>
       <pre>{JSON.stringify({ count, countTotal, isClicked })}</pre>
       <pre>{uploadingReset ? `uploading reset ${resetDep}...` : ""}</pre>
+      <pre style={{ color: "red" }}>
+        {isClappedTooMuch ? "You have Clapped too much! Please Stop Now" : ""}
+      </pre>
     </div>
   );
 };
